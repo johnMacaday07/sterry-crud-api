@@ -5,6 +5,9 @@ use Psr\Http\Message\ServerRequestInterface as Request;
 use Slim\Factory\AppFactory;
 use Firebase\JWT\JWT;
 use Firebase\JWT\Key;
+use Respect\Validation\Validator as v;
+use Respect\Validation\Exceptions\NestedValidationException;
+use Nyholm\Psr7\Response as Psr7Response;
 
 require __DIR__ . '/vendor/autoload.php';
 
@@ -25,10 +28,11 @@ function getBearerToken(): ?string
     return trim(str_replace('Bearer', '', $headers['authorization']));
 }
 
-$authenticate = function ($request, $response) {
+$authenticate = function ($request, $handler) {
     global $jwt_secret;
     $token = getBearerToken($request->getHeaderLine('Authorization'));
     if (!$token) {
+        $response = new Psr7Response();
         $response->getBody()->write(json_encode(['error' => 'Token required']));
         return $response->withStatus(401)->withHeader('Content-Type', 'application/json');
     }
@@ -38,9 +42,10 @@ $authenticate = function ($request, $response) {
         $decoded = JWT::decode($token, new Key($jwt_secret, 'HS256'));
 
         // Proceed to the next middleware
-        return $response->handle($request);
+        return $handler->handle($request);
     } catch (\Exception $e) {
-        $response->getBody()->write(json_encode(['error' => 'Invalid token']));
+        $response = new Psr7Response();
+        $response->getBody()->write(json_encode(['error' => 'Invalid token', 'e' => $e->getMessage()]));
         return $response->withStatus(401)->withHeader('Content-Type', 'application/json');
     }
 };
@@ -57,9 +62,17 @@ $app->get('/', function (Request $request, Response $response, $args) {
 // Create a post
 $app->post('/posts', function ($request, $response) {
     global $db; // access global $db
-
     $data = $request->getParsedBody();
-    // var_dump($request);
+    $validator = v::key('title', v::stringType()->notEmpty())
+        ->key('content', v::stringType()->notEmpty())
+        ->key('author_id', v::intVal()->notEmpty());
+
+    try {
+        $validator->assert($data);
+    } catch (NestedValidationException $e) {
+        $response->getBody()->write(json_encode($e->getMessages()));
+        return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
+    }
     $sql = "INSERT INTO posts (title, content, author_id) 
             VALUES (:title, :content, :author_id)";
 
@@ -119,11 +132,21 @@ $app->get('/posts/{id}', function ($request, $response, $args) {
 // Update a post
 $app->put('/posts/{id}', function ($request, $response, $args) {
     global $db; // access global $db
-
     $id = $args['id'];
     $data = $request->getParsedBody();
     $update_string = '';
-    echo $id;
+
+    // Validate input
+    $validator = v::key('title', v::optional(v::stringType()->notEmpty()))
+        ->key('content', v::optional(v::stringType()->notEmpty()));
+    // var_dump($validator);die;
+
+    try {
+        $validator->assert($data);
+    } catch (NestedValidationException $e) {
+        $response->getBody()->write(json_encode($e->getMessages()));
+        return $response->withStatus(400)->withHeader('Content-Type', 'application/json');
+    }
 
     if ($data['title']) {
         $update_string .= "title = '" . $data['title'] . "' ";
