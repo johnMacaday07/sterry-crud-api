@@ -11,7 +11,7 @@ CREATE TABLE posts (
   title VARCHAR(255),
   content TEXT,
   author_id INT,
-  date_created DATETIME,
-  date_modified DATETIME,
+  date_created DATETIME DEFAULT CURRENT_TIMESTAMP,
+  date_modified DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (author_id) REFERENCES users(id)
 );
